@@ -101,8 +101,15 @@ public class LinkageEngine {
     /** 按告警类型派生现场任务（同单同类型任务去重，优先级就高） */
     private void deriveTasks(GovernanceCase gc, GarbageRoom room, Alert alert) {
         switch (alert.getType()) {
-            case KITCHEN_FULL_NO_TRUCK -> createTask(gc, TaskType.TRUCK_DISPATCH, "SANITATION", 100,
-                    "厨余桶满溢(" + room.getKitchenCapacityPct() + "%)且清运车未到，优先调度清运", alert.getId());
+            // 满溢升级链路：先通知物业临时封桶、引导居民到备用点，再通知环卫调整清运路线
+            case KITCHEN_FULL_NO_TRUCK -> {
+                createTask(gc, TaskType.TEMP_SEAL, "PROPERTY", 95,
+                        "厨余桶满溢(" + room.getKitchenCapacityPct() + "%)，立即临时封桶并引导居民到备用投放点",
+                        alert.getId());
+                createTask(gc, TaskType.TRUCK_DISPATCH, "SANITATION", 100,
+                        "厨余桶满溢(" + room.getKitchenCapacityPct() + "%)且清运车未到，调整路线优先清运",
+                        alert.getId());
+            }
             case OTHER_BIN_FULL -> createTask(gc, TaskType.TRUCK_DISPATCH, "SANITATION", 80,
                     "其他垃圾桶容量" + room.getOtherCapacityPct() + "%，安排清运", alert.getId());
             case ODOR, ODOR_COMPLAINT -> {
@@ -120,6 +127,10 @@ public class LinkageEngine {
                     "清运离场后超过" + props.getNotCleanedMinutes() + "分钟未清洁，立即补做清洁", alert.getId());
             case POINTS_UNSETTLED -> createTask(gc, TaskType.RECTIFY, "PROPERTY", 45,
                     "投放积分未到账，核对称重/摄像头数据并补录积分", alert.getId());
+            case SEALED_SITE_DISPOSAL -> createTask(gc, TaskType.SITE_MANAGEMENT, "PROPERTY", 65,
+                    "封桶期间仍有居民到满溢点投放，现场督导并引导备用点（不扣居民积分）", alert.getId());
+            // 清运超时升级仅向街道端发出超时提醒，不重复派生清运任务
+            case COLLECTION_OVERDUE -> { }
         }
     }
 

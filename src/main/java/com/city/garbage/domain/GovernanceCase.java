@@ -52,6 +52,26 @@ public class GovernanceCase {
 
     private int openTaskCount = 0;
 
+    /* ---- 满溢清运超时升级相关留痕 ---- */
+
+    /** 环卫回填的清运延迟原因（如车辆故障、交通管制、排班不足） */
+    @Column(name = "collection_delay_reason", length = 255)
+    private String collectionDelayReason;
+
+    /** 本单封桶/超时期间累计的居民投诉数量 */
+    @Column(name = "complaint_count", nullable = false)
+    private int complaintCount = 0;
+
+    /** 封桶期间居民仍到现场投放的人次（摄像头记录进入现场管理问题） */
+    @Column(name = "sealed_disposal_count", nullable = false)
+    private int sealedDisposalCount = 0;
+
+    /** 是否已向街道升级超时提醒 */
+    @Column(name = "overdue_escalated", nullable = false)
+    private boolean overdueEscalated = false;
+
+    private OffsetDateTime overdueEscalatedAt;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
     private OffsetDateTime resolvedAt;

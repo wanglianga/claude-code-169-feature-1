@@ -29,6 +29,7 @@ public class DeviceIngestService {
     private final TruckVisitRepository visitRepository;
     private final DeviceEventLogRepository logRepository;
     private final LinkageEngine engine;
+    private final SealManagementService sealService;
     private final LinkageProperties props;
     private final TimeService timeService;
     private final ObjectMapper objectMapper;
@@ -82,6 +83,9 @@ public class DeviceIngestService {
             room.setKitchenFull(false);
             room.setKitchenFullSince(null);
             engine.resolveByType(room.getCode(), AlertType.KITCHEN_FULL_NO_TRUCK, "厨余桶容量已降至阈值以下");
+            if (room.isKitchenSealed() || room.isOverdueEscalated()) {
+                sealService.releaseSeal(room, "厨余桶容量回落至阈值以下，解除临时封桶");
+            }
         }
     }
 
@@ -134,6 +138,7 @@ public class DeviceIngestService {
             visitRepository.save(visit);
             // 车已到场，满溢未到场告警解除；容量未清空前 OTHER_BIN_FULL 仍保留
             engine.resolveByType(room.getCode(), AlertType.KITCHEN_FULL_NO_TRUCK, "清运车已到场");
+            sealService.onTruckArrived(room);
         } else {
             TruckVisit visit = visitRepository
                     .findFirstByRoomCodeAndStatusInOrderByArrivedAtDesc(room.getCode(),
@@ -154,6 +159,8 @@ public class DeviceIngestService {
             room.setOtherFullSince(null);
             room.setKitchenFullSince(null);
             room.setCurrentOdor(Math.min(room.getCurrentOdor(), 30));
+            // 清运离场桶已清空：解除临时封桶/超时升级/现场管理问题，恢复居民投放
+            sealService.releaseSeal(room, "清运完成，桶已清空，恢复正常投放");
             engine.resolveByType(room.getCode(), AlertType.KITCHEN_FULL_NO_TRUCK, "清运完成，桶已清空");
             engine.resolveByType(room.getCode(), AlertType.OTHER_BIN_FULL, "清运完成，桶已清空");
             log.info("清运车离场 room={}，等待清洁确认（{}分钟内）", room.getCode(), props.getNotCleanedMinutes());

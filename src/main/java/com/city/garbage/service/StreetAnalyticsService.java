@@ -71,6 +71,45 @@ public class StreetAnalyticsService {
         return list;
     }
 
+    /**
+     * 街道端清运超时督办列表：临时封桶后清运车超过阈值仍未到场的垃圾房，
+     * 含封桶时间、超时时长、居民投诉数量、封桶期间现场投放人次、环卫回填的延迟原因。
+     */
+    public List<Map<String, Object>> collectionOverdues() {
+        OffsetDateTime now = timeService.now();
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (GarbageRoom room : roomRepository.findAll()) {
+            if (!room.isOverdueEscalated()) continue;
+            GovernanceCase gc = room.getActiveCaseNo() == null ? null
+                    : caseRepository.findByCaseNo(room.getActiveCaseNo()).orElse(null);
+            long overdueMins = room.getSealedAt() == null ? 0
+                    : java.time.Duration.between(room.getSealedAt(), now).toMinutes();
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("roomCode", room.getCode());
+            m.put("roomName", room.getName());
+            m.put("communityId", room.getCommunityId());
+            communityRepository.findById(room.getCommunityId()).ifPresent(c -> {
+                m.put("communityName", c.getName());
+                m.put("streetName", c.getStreetName());
+            });
+            m.put("sealedAt", room.getSealedAt());
+            m.put("overdueMinutes", overdueMins);
+            m.put("escalatedAt", room.getOverdueEscalatedAt());
+            m.put("truckPresent", room.isTruckPresent());
+            m.put("kitchenCapacityPct", room.getKitchenCapacityPct());
+            m.put("alternativeRoomCode", room.getAlternativeRoomCode());
+            m.put("estimatedRestoreAt", room.getEstimatedRestoreAt());
+            m.put("complaintCount", gc == null ? 0 : gc.getComplaintCount());
+            m.put("sealedDisposalCount", gc == null ? 0 : gc.getSealedDisposalCount());
+            m.put("collectionDelayReason", gc == null ? null : gc.getCollectionDelayReason());
+            m.put("caseNo", room.getActiveCaseNo());
+            list.add(m);
+        }
+        list.sort(Comparator.comparing(m -> (java.time.OffsetDateTime) ((Map<?, ?>) m).get("sealedAt"),
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return list;
+    }
+
     private List<Map<String, Object>> dailyTrend(List<DisposalRecord> records, List<Complaint> complaints,
                                                  LocalDate from, LocalDate to) {
         Map<LocalDate, long[]> buckets = new TreeMap<>(); // [total, wrong]

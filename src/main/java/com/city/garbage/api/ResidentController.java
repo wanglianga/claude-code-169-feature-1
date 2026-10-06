@@ -13,6 +13,7 @@ import com.city.garbage.repo.PointsLedgerRepository;
 import com.city.garbage.repo.ResidentRepository;
 import com.city.garbage.service.ComplaintService;
 import com.city.garbage.service.DisposalService;
+import com.city.garbage.service.SealManagementService;
 import com.city.garbage.support.BusinessException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,9 +33,17 @@ public class ResidentController {
 
     private final DisposalService disposalService;
     private final ComplaintService complaintService;
+    private final SealManagementService sealService;
     private final ResidentRepository residentRepository;
     private final PointsLedgerRepository ledgerRepository;
     private final DisposalRepository disposalRepository;
+
+    @Operation(summary = "满溢封桶投放指引",
+            description = "某垃圾房厨余桶满溢临时封桶时，返回封桶状态、最近可用投放点与预计恢复时间")
+    @GetMapping("/rooms/{roomCode}/disposal-guidance")
+    public Map<String, Object> disposalGuidance(@PathVariable String roomCode) {
+        return sealService.guidance(roomCode);
+    }
 
     @Operation(summary = "刷卡/扫码投放",
             description = "记录小区/楼栋/垃圾类型/重量；摄像头识别不一致判错投并提示；"

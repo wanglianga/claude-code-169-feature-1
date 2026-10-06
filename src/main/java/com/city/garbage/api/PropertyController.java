@@ -4,12 +4,15 @@ import com.city.garbage.api.dto.AssignTaskRequest;
 import com.city.garbage.api.dto.CompleteTaskRequest;
 import com.city.garbage.api.dto.ComplaintReplyRequest;
 import com.city.garbage.api.dto.ComplaintRequest;
+import com.city.garbage.api.dto.SealRequest;
+import com.city.garbage.api.dto.UnsealRequest;
 import com.city.garbage.domain.*;
 import com.city.garbage.repo.AlertRepository;
 import com.city.garbage.repo.ComplaintRepository;
 import com.city.garbage.repo.GovernanceCaseRepository;
 import com.city.garbage.service.ComplaintService;
 import com.city.garbage.service.DisposalService;
+import com.city.garbage.service.SealManagementService;
 import com.city.garbage.service.WorkTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,6 +32,7 @@ public class PropertyController {
     private final WorkTaskService taskService;
     private final ComplaintService complaintService;
     private final DisposalService disposalService;
+    private final SealManagementService sealService;
     private final AlertRepository alertRepository;
     private final GovernanceCaseRepository caseRepository;
     private final ComplaintRepository complaintRepository;
@@ -37,6 +41,21 @@ public class PropertyController {
     @GetMapping("/tasks/pending")
     public List<WorkTask> pendingTasks() {
         return taskService.propertyPending();
+    }
+
+    @Operation(summary = "确认厨余桶临时封桶并引导居民到备用点（随后自动通知环卫调整路线）",
+            description = "满溢阈值触发后物业第一步动作：封桶、指定备用投放点与预计恢复时间")
+    @PostMapping("/rooms/{roomCode}/seal")
+    public GarbageRoom seal(@PathVariable String roomCode, @Valid @RequestBody SealRequest req) {
+        return sealService.confirmSeal(roomCode, req.operator(), req.alternativeRoomCode(),
+                req.estimatedRestoreMinutes(), req.note());
+    }
+
+    @Operation(summary = "人工解除临时封桶（清运车到场清运后通常自动解封）")
+    @PostMapping("/rooms/{roomCode}/unseal")
+    public GarbageRoom unseal(@PathVariable String roomCode,
+                              @org.springframework.web.bind.annotation.RequestBody(required = false) UnsealRequest req) {
+        return sealService.unseal(roomCode, req == null ? null : req.note());
     }
 
     @Operation(summary = "派发任务给保洁/维修人员")

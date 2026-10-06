@@ -30,6 +30,7 @@ public class LinkageWatchdog {
     private final LinkageEngine engine;
     private final SanitationService sanitationService;
     private final DisposalService disposalService;
+    private final SealManagementService sealService;
     private final LinkageProperties props;
     private final TimeService timeService;
 
@@ -39,6 +40,12 @@ public class LinkageWatchdog {
         checkOffline();
         sanitationService.checkNotCleaned(props.getNotCleanedMinutes());
         checkPointsUnsettled();
+        checkCollectionOverdue();
+    }
+
+    /** 厨余桶临时封桶后清运车超时未到场 -> 升级提醒街道 */
+    private void checkCollectionOverdue() {
+        sealService.checkCollectionOverdue();
     }
 
     private void checkOffline() {

@@ -65,6 +65,10 @@ public class DisposalRecord {
     @Column(length = 20)
     private DisposalStatus status = DisposalStatus.PENDING_POINTS;
 
+    /** 封桶期间仍到满溢点投放：摄像头记录转为现场管理问题，不计分、不扣分 */
+    @Column(name = "sealed_room_disposal", nullable = false)
+    private boolean sealedRoomDisposal = false;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime settledAt;
 

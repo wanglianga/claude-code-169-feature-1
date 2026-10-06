@@ -31,6 +31,7 @@ public class DisposalService {
     private final CommunityRepository communityRepository;
     private final PointsLedgerRepository ledgerRepository;
     private final AlertRepository alertRepository;
+    private final GovernanceCaseRepository caseRepository;
     private final LinkageEngine engine;
     private final LinkageProperties props;
     private final TimeService timeService;
@@ -49,6 +50,13 @@ public class DisposalService {
 
         WasteType detected = detectedTypeRaw != null ? detectedTypeRaw : binType;
         boolean wrong = detected != binType;
+
+        // 封桶期间居民仍到满溢点投放：摄像头记录进入“现场管理问题”，
+        // 由物业现场督导并引导备用点，不计分、不扣居民积分。
+        if (room.isKitchenSealed()) {
+            return handleSealedRoomDisposal(resident, community, room, binType, detected,
+                    weightKg, confidence, wrong, now);
+        }
 
         DisposalRecord r = new DisposalRecord();
         r.setResidentId(resident.getId());
@@ -117,6 +125,53 @@ public class DisposalService {
         }
 
         trackNightPeak(room, now);
+        return r;
+    }
+
+    /**
+     * 封桶期间投放：该投放不作为居民违规，不产生积分扣减；
+     * 摄像头记录计入联动单“现场管理问题”，派生现场督导任务并累计人次。
+     */
+    private DisposalRecord handleSealedRoomDisposal(Resident resident, Community community, GarbageRoom room,
+                                                    WasteType binType, WasteType detected, Double weightKg,
+                                                    Double confidence, boolean wrong, OffsetDateTime now) {
+        DisposalRecord r = new DisposalRecord();
+        r.setResidentId(resident.getId());
+        r.setCardNo(resident.getCardNo());
+        r.setCommunityId(community.getId());
+        r.setBuildingName(resident.getBuildingName());
+        r.setRoomCode(room.getCode());
+        r.setBinType(binType);
+        r.setDetectedType(detected);
+        r.setWeightKg(weightKg);
+        r.setConfidence(confidence);
+        r.setWrongSort(false);
+        r.setSealedRoomDisposal(true);
+        r.setPointsChange(0);
+        r.setStatus(DisposalStatus.SETTLED);
+        r.setSettledAt(now);
+        String alt = room.getAlternativeRoomCode() != null ? "，请改投备用投放点 " + room.getAlternativeRoomCode()
+                : "，请改投附近其他投放点";
+        String restore = room.getEstimatedRestoreAt() != null
+                ? "，预计 " + room.getEstimatedRestoreAt() + " 恢复" : "";
+        r.setViolationMessage("该厨余桶已满溢临时封桶，本次投放不计分也不扣分，已转现场管理引导" + alt + restore);
+        r = disposalRepository.save(r);
+        // 账实一致：0 分流水，标明封桶期间投放，避免“未到账”误解
+        ledgerRepository.save(new PointsLedger(resident.getId(), r.getId(), 0,
+                resident.getTotalPoints(), "封桶期间投放，现场管理引导，不计分不扣分", now));
+
+        Alert alert = engine.raiseAlert(room, AlertType.SEALED_SITE_DISPOSAL, AlertSeverity.MEDIUM,
+                "封桶期间居民" + maskCard(resident.getCardNo()) + "仍在" + room.getName()
+                        + "投放（摄像头记录，现场管理问题，不扣居民积分）",
+                "SEALED_SITE_DISPOSAL:" + room.getCode(), r.getId(), null);
+        r.setCaseNo(alert.getCaseNo());
+        disposalRepository.save(r);
+        if (alert.getCaseNo() != null) {
+            caseRepository.findByCaseNo(alert.getCaseNo()).ifPresent(gc -> {
+                gc.setSealedDisposalCount(gc.getSealedDisposalCount() + 1);
+                caseRepository.save(gc);
+            });
+        }
         return r;
     }
 

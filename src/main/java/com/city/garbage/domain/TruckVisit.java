@@ -28,6 +28,10 @@ public class TruckVisit {
     private Integer kitchenCapacityAtArrival;
     private Integer otherCapacityAtArrival;
 
+    /** 环卫回填的清运延迟原因（车辆故障/交通管制/排班不足等） */
+    @Column(name = "delay_reason", length = 255)
+    private String delayReason;
+
     private OffsetDateTime arrivedAt;
     private OffsetDateTime departedAt;
     private OffsetDateTime cleanedConfirmedAt;

@@ -53,4 +53,33 @@ public class GarbageRoom {
     /** 当前活跃的治理联动单号（无则为空），保证多告警合并到同一单 */
     @Column(length = 40)
     private String activeCaseNo;
+
+    /* ---- 满溢临时封桶 / 清运超时升级字段 ---- */
+
+    /** 厨余桶是否已被物业临时封桶 */
+    @Column(name = "kitchen_sealed", nullable = false)
+    private boolean kitchenSealed = false;
+
+    /** 封桶时间（同时作为向环卫催调路线、街道超时计时的起点） */
+    private OffsetDateTime sealedAt;
+
+    /** 执行封桶的物业人员 */
+    @Column(length = 64)
+    private String sealedBy;
+
+    @Column(length = 255)
+    private String sealedNote;
+
+    /** 封桶时引导居民前往的备用投放点编码 */
+    @Column(name = "alternative_room_code", length = 32)
+    private String alternativeRoomCode;
+
+    /** 居民端展示的预计恢复投放时间 */
+    private OffsetDateTime estimatedRestoreAt;
+
+    /** 清运超时是否已升级提醒街道（一次封桶周期只升级一次） */
+    @Column(name = "overdue_escalated", nullable = false)
+    private boolean overdueEscalated = false;
+
+    private OffsetDateTime overdueEscalatedAt;
 }

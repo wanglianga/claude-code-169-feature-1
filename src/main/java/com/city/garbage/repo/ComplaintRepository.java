@@ -16,6 +16,9 @@ public interface ComplaintRepository extends JpaRepository<Complaint, Long> {
     long countByCommunityIdAndStatusAndCreatedAtBetween(Long communityId, ComplaintStatus status,
                                                         OffsetDateTime from, OffsetDateTime to);
 
+    /** 统计并入某张联动单的投诉数量（满溢超时升级时回填到事件记录） */
+    long countByCaseNo(String caseNo);
+
     @Query("select coalesce(sum(case when c.status = com.city.garbage.domain.ComplaintStatus.RESOLVED then 1 else 0 end),0) " +
             "from Complaint c where c.communityId = :cid and c.createdAt between :from and :to")
     long resolvedCount(@Param("cid") Long communityId, @Param("from") OffsetDateTime from, @Param("to") OffsetDateTime to);

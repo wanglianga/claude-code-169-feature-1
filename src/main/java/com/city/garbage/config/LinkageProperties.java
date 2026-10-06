@@ -20,4 +20,8 @@ public class LinkageProperties {
     private int notCleanedMinutes = 15;
     /** 积分待结算超过多少秒视为“积分未到账” */
     private int unsettledSeconds = 60;
+    /** 物业临时封桶后，清运车超过该分钟数仍未到场则升级提醒街道 */
+    private int sealOverdueMinutes = 30;
+    /** 封桶时居民端默认展示的预计恢复时间（分钟） */
+    private int defaultRestoreMinutes = 60;
 }

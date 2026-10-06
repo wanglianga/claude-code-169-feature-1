@@ -46,6 +46,8 @@ app:
     odor-threshold: 70         # 异味值 >= 70 视为异味告警
     points-per-kg: 10          # 正确投放每公斤积分
     wrong-sort-deduction: 5    # 错投扣减积分（不低于0）
+    seal-overdue-minutes: 30   # 临时封桶后清运车超过该分钟数仍未到场则升级街道
+    default-restore-minutes: 60 # 封桶时居民端默认展示的预计恢复时间（分钟）
 
 management:
   endpoints:

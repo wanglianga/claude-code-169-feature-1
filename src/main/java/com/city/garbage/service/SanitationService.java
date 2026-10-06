@@ -47,7 +47,9 @@ public class SanitationService {
         String reason;
         if (r.isKitchenFull() && !r.isTruckPresent()) {
             score = 100;
-            reason = "厨余桶满溢且车未到";
+            reason = r.isKitchenSealed()
+                    ? (r.isOverdueEscalated() ? "厨余满溢已封桶且清运超时，街道督办中" : "厨余满溢已封桶，物业已申请调整路线")
+                    : "厨余桶满溢且车未到";
         } else if (r.getOtherCapacityPct() != null && r.getOtherCapacityPct() >= 90) {
             score = 80;
             reason = "其他垃圾桶满溢";
@@ -72,6 +74,11 @@ public class SanitationService {
         m.put("kitchenCapacityPct", r.getKitchenCapacityPct());
         m.put("otherCapacityPct", r.getOtherCapacityPct());
         m.put("kitchenFull", r.isKitchenFull());
+        m.put("kitchenSealed", r.isKitchenSealed());
+        m.put("sealedAt", r.getSealedAt());
+        m.put("overdueEscalated", r.isOverdueEscalated());
+        m.put("alternativeRoomCode", r.getAlternativeRoomCode());
+        m.put("estimatedRestoreAt", r.getEstimatedRestoreAt());
         m.put("truckPresent", r.isTruckPresent());
         m.put("online", r.isOnline());
         m.put("odor", r.getCurrentOdor());

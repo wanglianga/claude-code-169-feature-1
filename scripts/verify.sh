@@ -61,9 +61,23 @@ CID=$(post /api/resident/complaints '{"contact":"13800000000","roomCode":"ROOM2"
 post "/api/property/complaints/$CID/reply" '{"reply":"已安排保洁消杀"}' >/dev/null
 echo "    街道质量视图: $(curl -s "$B/api/street/overview?days=7" | python3 -c 'import sys,json;d=json.load(sys.stdin);print([(x["communityName"],x["correctRatePct"],x["complaintCount"]) for x in d])')"
 
+echo "==> [3.5] 满溢封桶清运超时升级演练（ROOM3）"
+post /api/device/events '{"eventType":"KITCHEN_FULL","roomCode":"ROOM3","binType":"KITCHEN","capacityPct":96}' >/dev/null
+post /api/property/rooms/ROOM3/seal '{"operator":"张物业","alternativeRoomCode":"ROOM2","estimatedRestoreMinutes":45,"note":"厨余桶已满，临时封桶"}' >/dev/null
+echo "    居民投放指引: $(curl -s "$B/api/resident/rooms/ROOM3/disposal-guidance" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("封桶=",d["kitchenSealed"],"恢复=",d["estimatedRestoreAt"],"推荐备用点=",[a["roomCode"] for a in d["alternativePoints"] if a["recommended"]])')"
+post /api/resident/disposals '{"cardNo":"CARD1003","roomCode":"ROOM3","binType":"KITCHEN","detectedType":"OTHER","weightKg":0.6,"confidence":0.9}' >/dev/null
+echo "    封桶期间投放后积分: $(curl -s "$B/api/resident/CARD1003/profile" | python3 -c 'import sys,json;print(json.load(sys.stdin)["totalPoints"])')（应=100，不扣分）"
+post /api/sanitation/rooms/ROOM3/delay-reason '{"reason":"清运车故障，已调派备用车"}' >/dev/null
+echo "    街道超时督办(超时前应为空): $(curl -s "$B/api/street/collection-overdues")"
+post /api/device/events '{"eventType":"TRUCK_ARRIVAL","roomCode":"ROOM3","truckPresent":true}' >/dev/null
+post /api/device/events '{"eventType":"TRUCK_ARRIVAL","roomCode":"ROOM3","truckPresent":false}' >/dev/null
+SEALED=$(curl -s "$B/api/resident/rooms/ROOM3/disposal-guidance" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["kitchenSealed"])')
+echo "    清运后封桶状态: kitchenSealed=$SEALED（应=False）"
+
 echo "==> [4/4] 结果判定"
-if [ "$ACTIVE" = "None" ] && [ "$PENDING" = "0" ]; then
-  echo "PASS: 告警合并 -> 多角色任务 -> 积分退还 -> 清运清洁 -> 联动单闭环 全部验证通过"
+ACTIVE3=$(curl -s "$B/api/rooms/ROOM3" | python3 -c 'import sys,json;print(json.load(sys.stdin)["room"]["activeCaseNo"])')
+if [ "$ACTIVE" = "None" ] && [ "$ACTIVE3" = "None" ] && [ "$SEALED" = "False" ] && [ "$PENDING" = "0" ]; then
+  echo "PASS: 告警合并 -> 多角色任务 -> 积分退还 -> 清运清洁 -> 满溢封桶升级 -> 联动单闭环 全部验证通过"
 else
-  echo "FAIL: activeCaseNo=$ACTIVE pendingTasks=$PENDING"; exit 1
+  echo "FAIL: activeCaseNo(ROOM1)=$ACTIVE activeCaseNo(ROOM3)=$ACTIVE3 sealed=$SEALED pendingTasks=$PENDING"; exit 1
 fi

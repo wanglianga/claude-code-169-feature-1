@@ -1,6 +1,7 @@
 package com.city.garbage.domain;
 
-/** 告警类型：满溢未到场、异味、错投、夜间高峰、断网、投诉、清运后未清洁、积分未到账、摄像头误判 */
+/** 告警类型：满溢未到场、临时封桶引导、清运超时升级、封桶期间现场投放、
+ * 异味、错投、夜间高峰、断网、投诉、清运后未清洁、积分未到账、摄像头误判 */
 public enum AlertType {
     KITCHEN_FULL_NO_TRUCK("厨余桶满溢且清运车未到"),
     OTHER_BIN_FULL("其他垃圾桶满溢"),
@@ -11,7 +12,9 @@ public enum AlertType {
     ODOR_COMPLAINT("异味投诉"),
     NOT_CLEANED_AFTER_COLLECTION("清运后未清洁"),
     POINTS_UNSETTLED("积分未到账"),
-    CAMERA_MISJUDGE("摄像头误判申诉");
+    CAMERA_MISJUDGE("摄像头误判申诉"),
+    COLLECTION_OVERDUE("清运超时未到场升级"),
+    SEALED_SITE_DISPOSAL("封桶期间现场投放");
 
     private final String label;
     AlertType(String label) { this.label = label; }
