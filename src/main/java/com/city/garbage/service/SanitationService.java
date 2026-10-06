@@ -43,9 +43,15 @@ public class SanitationService {
     }
 
     private Map<String, Object> toPriority(GarbageRoom r) {
-        int score = 0;
+        int score;
         String reason;
-        if (r.isKitchenFull() && !r.isTruckPresent()) {
+        if (r.isOverdueNotified() && r.isKitchenFull() && !r.isTruckPresent()) {
+            score = 120;
+            reason = "封桶后清运车超时未到，街道督办，立即调车";
+        } else if (r.isSealed() && r.isKitchenFull() && !r.isTruckPresent()) {
+            score = 110;
+            reason = "厨余桶满溢已封桶，居民改投备用点，需调整路线优先清运";
+        } else if (r.isKitchenFull() && !r.isTruckPresent()) {
             score = 100;
             reason = "厨余桶满溢且车未到";
         } else if (r.getOtherCapacityPct() != null && r.getOtherCapacityPct() >= 90) {
@@ -72,6 +78,8 @@ public class SanitationService {
         m.put("kitchenCapacityPct", r.getKitchenCapacityPct());
         m.put("otherCapacityPct", r.getOtherCapacityPct());
         m.put("kitchenFull", r.isKitchenFull());
+        m.put("sealed", r.isSealed());
+        m.put("overdueNotified", r.isOverdueNotified());
         m.put("truckPresent", r.isTruckPresent());
         m.put("online", r.isOnline());
         m.put("odor", r.getCurrentOdor());

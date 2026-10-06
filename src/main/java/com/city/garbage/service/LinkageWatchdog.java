@@ -17,7 +17,8 @@ import java.util.List;
  * 定时巡检：
  * 1) 心跳超时 -> 设备断网告警 -> 物业维修任务，恢复心跳自动销警；
  * 2) 清运离场超时未清洁 -> “清运后未清洁” -> 物业补保洁；
- * 3) 投放积分长期未到账 -> “积分未到账” -> 物业核查补发。
+ * 3) 投放积分长期未到账 -> “积分未到账” -> 物业核查补发；
+ * 4) 厨余桶满溢清运车超时未到 -> 物业封桶引导 + 环卫调线，再超时 -> 街道督办。
  */
 @Slf4j
 @Component
@@ -30,6 +31,7 @@ public class LinkageWatchdog {
     private final LinkageEngine engine;
     private final SanitationService sanitationService;
     private final DisposalService disposalService;
+    private final CollectionEscalationService escalationService;
     private final LinkageProperties props;
     private final TimeService timeService;
 
@@ -39,6 +41,12 @@ public class LinkageWatchdog {
         checkOffline();
         sanitationService.checkNotCleaned(props.getNotCleanedMinutes());
         checkPointsUnsettled();
+        checkKitchenFullEscalation();
+    }
+
+    /** 厨余桶满溢清运超时：封桶引导 -> 街道超时督办 */
+    private void checkKitchenFullEscalation() {
+        escalationService.checkSealAndEscalate();
     }
 
     private void checkOffline() {

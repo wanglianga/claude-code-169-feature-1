@@ -13,6 +13,7 @@ import com.city.garbage.repo.PointsLedgerRepository;
 import com.city.garbage.repo.ResidentRepository;
 import com.city.garbage.service.ComplaintService;
 import com.city.garbage.service.DisposalService;
+import com.city.garbage.service.ResidentGuideService;
 import com.city.garbage.support.BusinessException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,6 +33,7 @@ public class ResidentController {
 
     private final DisposalService disposalService;
     private final ComplaintService complaintService;
+    private final ResidentGuideService guideService;
     private final ResidentRepository residentRepository;
     private final PointsLedgerRepository ledgerRepository;
     private final DisposalRepository disposalRepository;
@@ -95,5 +97,12 @@ public class ResidentController {
     @PostMapping("/complaints")
     public Complaint complaint(@Valid @RequestBody ComplaintRequest req) {
         return complaintService.create(req.residentId(), req.contact(), req.roomCode(), req.type(), req.content());
+    }
+
+    @Operation(summary = "投放点引导：封桶状态、预计恢复时间与最近可用投放点",
+            description = "厨余桶满溢临时封桶时，居民端据此引导至同小区/同街道最近可用投放点")
+    @GetMapping("/rooms/{roomCode}/disposal-guide")
+    public Map<String, Object> disposalGuide(@PathVariable String roomCode) {
+        return guideService.disposalGuide(roomCode);
     }
 }

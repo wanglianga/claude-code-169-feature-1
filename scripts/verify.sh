@@ -31,7 +31,7 @@ done
 curl -sf "$B/actuator/health" >/dev/null
 echo "    health: $(curl -s "$B/actuator/health")"
 
-post() { curl -s -X POST "$B$1" -H 'Content-Type: application/json' -d "$2"; }
+post() { curl -s -X POST "$B$1" -H 'Content-Type: application/json' -d "${2:-}"; }
 
 echo "==> [3/4] 联动场景演练"
 post /api/device/events '{"eventType":"KITCHEN_FULL","roomCode":"ROOM1","binType":"KITCHEN","capacityPct":95}' >/dev/null
@@ -60,6 +60,29 @@ echo "    全闭环后活跃联动单: ${ACTIVE:-无} ; 物业待办数: $PENDIN
 CID=$(post /api/resident/complaints '{"contact":"13800000000","roomCode":"ROOM2","type":"ODOR","content":"2号房异味"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 post "/api/property/complaints/$CID/reply" '{"reply":"已安排保洁消杀"}' >/dev/null
 echo "    街道质量视图: $(curl -s "$B/api/street/overview?days=7" | python3 -c 'import sys,json;d=json.load(sys.stdin);print([(x["communityName"],x["correctRatePct"],x["complaintCount"]) for x in d])')"
+
+echo "==> 满溢清运超时升级演练（ROOM2 厨余满溢回溯31分钟：物业封桶引导+环卫调线 -> 街道督办）"
+FULL_AT=$(python3 -c 'import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(minutes=31)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+post /api/device/events "{\"eventType\":\"KITCHEN_FULL\",\"roomCode\":\"ROOM2\",\"binType\":\"KITCHEN\",\"capacityPct\":96,\"occurredAt\":\"$FULL_AT\"}" >/dev/null
+post /api/sanitation/escalation-check >/dev/null
+echo "    环卫优先级 ROOM2: $(curl -s "$B/api/sanitation/truck-priorities" | python3 -c 'import sys,json;d=json.load(sys.stdin);r=next(x for x in d if x["roomCode"]=="ROOM2");print(r["priorityScore"],r["reason"])')"
+echo "    居民端引导: $(curl -s "$B/api/resident/rooms/ROOM2/disposal-guide" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("封桶=",d["sealed"],"预计恢复=",d["estimatedResumeAt"],"最近备用点=",[ (a["roomCode"],a["distanceM"]) for a in d["alternatives"][:2]])')"
+
+BEFORE=$(curl -s "$B/api/resident/CARD1002/profile" | python3 -c 'import sys,json;print(json.load(sys.stdin)["totalPoints"])')
+post /api/resident/disposals '{"cardNo":"CARD1002","roomCode":"ROOM2","binType":"KITCHEN","weightKg":1.0}' >/dev/null
+AFTER=$(curl -s "$B/api/resident/CARD1002/profile" | python3 -c 'import sys,json;print(json.load(sys.stdin)["totalPoints"])')
+echo "    封桶点投放积分: 投放前=$BEFORE 投放后=$AFTER（应相等，不扣分）; 现场问题数=$(curl -s "$B/api/property/site-issues" | python3 -c 'import sys,json;print(len([x for x in json.load(sys.stdin) if x["roomCode"]=="ROOM2"]))')"
+
+DCID=$(post /api/resident/complaints '{"contact":"13800000002","roomCode":"ROOM2","type":"COLLECTION_DELAY","content":"满溢封桶迟迟不清运"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+ECASE=$(curl -s "$B/api/rooms/ROOM2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["room"]["activeCaseNo"])')
+curl -s -X POST "$B/api/street/cases/$ECASE/delay-reason" -H 'Content-Type: application/json' -d '{"reason":"早高峰交通管制，已改派备用车"}' >/dev/null
+echo "    街道超时事件: $(curl -s "$B/api/street/collection-overdue" | python3 -c 'import sys,json;d=json.load(sys.stdin);e=next(x for x in d if x["roomCode"]=="ROOM2");print("投诉数=",e["residentComplaintCount"],"现场问题=",e["openSiteIssueCount"],"延迟原因=",e["delayReason"])')"
+post "/api/property/complaints/$DCID/reply" '{"reply":"车辆已改派，马上到场"}' >/dev/null
+
+post /api/device/events '{"eventType":"TRUCK_ARRIVAL","roomCode":"ROOM2","truckPresent":true}' >/dev/null
+post /api/device/events '{"eventType":"TRUCK_ARRIVAL","roomCode":"ROOM2","truckPresent":false}' >/dev/null
+ESC_ACTIVE=$(curl -s "$B/api/rooms/ROOM2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["room"]["activeCaseNo"])')
+echo "    清运后 ROOM2 联动单: ${ESC_ACTIVE:-无}（现场问题随清运自动收口）"
 
 echo "==> [4/4] 结果判定"
 if [ "$ACTIVE" = "None" ] && [ "$PENDING" = "0" ]; then

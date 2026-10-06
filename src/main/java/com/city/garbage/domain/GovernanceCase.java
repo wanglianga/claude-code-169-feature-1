@@ -50,6 +50,18 @@ public class GovernanceCase {
     @Column(name = "rectify_note", length = 512)
     private String rectifyNote;
 
+    /** 清运延迟原因（环卫/街道回填，如车辆故障、交通管制、人手不足） */
+    @Column(name = "delay_reason", length = 255)
+    private String delayReason;
+
+    /** 本次满溢清运超时累计的居民投诉数量 */
+    @Column(name = "resident_complaint_count")
+    private int residentComplaintCount = 0;
+
+    /** 升级为街道超时督办的时间（未升级为空） */
+    @Column(name = "escalated_at")
+    private OffsetDateTime escalatedAt;
+
     private int openTaskCount = 0;
 
     private OffsetDateTime createdAt;

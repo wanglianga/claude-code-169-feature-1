@@ -29,6 +29,7 @@ public class DeviceIngestService {
     private final TruckVisitRepository visitRepository;
     private final DeviceEventLogRepository logRepository;
     private final LinkageEngine engine;
+    private final CollectionEscalationService escalationService;
     private final LinkageProperties props;
     private final TimeService timeService;
     private final ObjectMapper objectMapper;
@@ -72,7 +73,11 @@ public class DeviceIngestService {
         boolean full = pct != null ? pct >= props.getBinFullThreshold() : true;
         if (full) {
             room.setKitchenFull(true);
-            if (room.getKitchenFullSince() == null) room.setKitchenFullSince(now);
+            if (room.getKitchenFullSince() == null) {
+                // 以设备侧发生时间作为满溢起始（测试/演示可回溯），缺省用平台接收时间
+                OffsetDateTime occurred = e.getOccurredAt();
+                room.setKitchenFullSince(occurred != null && !occurred.isAfter(now) ? occurred : now);
+            }
             if (!room.isTruckPresent()) {
                 engine.raiseAlert(room, AlertType.KITCHEN_FULL_NO_TRUCK, AlertSeverity.URGENT,
                         "厨余桶已满(" + room.getKitchenCapacityPct() + "%)，清运车尚未到场",
@@ -82,6 +87,8 @@ public class DeviceIngestService {
             room.setKitchenFull(false);
             room.setKitchenFullSince(null);
             engine.resolveByType(room.getCode(), AlertType.KITCHEN_FULL_NO_TRUCK, "厨余桶容量已降至阈值以下");
+            // 容量自行回落（无需清运）也解除封桶与街道督办
+            escalationService.clearSealState(room, "厨余桶容量已降至阈值以下");
         }
     }
 
@@ -134,6 +141,8 @@ public class DeviceIngestService {
             visitRepository.save(visit);
             // 车已到场，满溢未到场告警解除；容量未清空前 OTHER_BIN_FULL 仍保留
             engine.resolveByType(room.getCode(), AlertType.KITCHEN_FULL_NO_TRUCK, "清运车已到场");
+            // 车到场即解除封桶与街道督办，居民端恢复正常投放提示
+            escalationService.clearSealState(room, "清运车已到场");
         } else {
             TruckVisit visit = visitRepository
                     .findFirstByRoomCodeAndStatusInOrderByArrivedAtDesc(room.getCode(),
@@ -156,7 +165,11 @@ public class DeviceIngestService {
             room.setCurrentOdor(Math.min(room.getCurrentOdor(), 30));
             engine.resolveByType(room.getCode(), AlertType.KITCHEN_FULL_NO_TRUCK, "清运完成，桶已清空");
             engine.resolveByType(room.getCode(), AlertType.OTHER_BIN_FULL, "清运完成，桶已清空");
-            log.info("清运车离场 room={}，等待清洁确认（{}分钟内）", room.getCode(), props.getNotCleanedMinutes());
+            // 清运离场、桶已清空：确认解封并收口封桶期间居民滞留投放的现场管理问题
+            escalationService.clearSealState(room, "清运完成，桶已清空");
+            int closedIssues = escalationService.closeOpenSiteIssues(room.getCode(), "清运完成，滞留垃圾已清理，现场恢复正常投放");
+            log.info("清运车离场 room={}，收口现场管理问题 {} 起；等待清洁确认（{}分钟内）",
+                    room.getCode(), closedIssues, props.getNotCleanedMinutes());
         }
     }
 

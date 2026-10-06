@@ -42,8 +42,11 @@ class LinkageFlowIntegrationTest {
     @Autowired DisposalRepository disposalRepository;
     @Autowired ResidentRepository residentRepository;
     @Autowired ComplaintRepository complaintRepository;
+    @Autowired SiteIssueRepository siteIssueRepository;
+    @Autowired NotificationRecordRepository notificationRepository;
     @Autowired com.city.garbage.service.LinkageWatchdog watchdog;
     @Autowired com.city.garbage.service.SanitationService sanitationService;
+    @Autowired com.city.garbage.service.CollectionEscalationService escalationService;
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
@@ -373,5 +376,186 @@ class LinkageFlowIntegrationTest {
             }
         }
         assertThat(sameCase).isTrue();
+    }
+
+    // ---------- 11. 满溢清运超时升级：封桶引导 -> 现场问题不扣分 -> 投诉计数 -> 街道督办 -> 清运解除闭环 ----------
+    @Test @Order(11)
+    void kitchenFullSeal_escalationGuideSiteIssueAndClosure() {
+        // 准备独立垃圾房 ROOM4（阳光花园，坐标介于 ROOM2/ROOM3 之间，最近备用点应为 ROOM2）
+        GarbageRoom room4 = roomRepository.findByCode("ROOM4").orElseGet(() -> {
+            GarbageRoom r = new GarbageRoom();
+            r.setCode("ROOM4");
+            r.setName("阳光花园3号垃圾房");
+            r.setCommunityId(1L);
+            r.setAddress("阳光花园北门");
+            r.setOnline(true);
+            return r;
+        });
+        room4.setCommunityId(1L);
+        room4.setLng(120.1900);
+        room4.setLat(30.2790);
+        room4.setOnline(true);
+        room4.setLastHeartbeatAt(timeService.now());
+        roomRepository.save(room4);
+        // 清掉既有房间残留满溢/封桶标记，保证巡检只对 ROOM4 生效
+        roomRepository.findAll().forEach(r -> {
+            if (!"ROOM4".equals(r.getCode())) {
+                r.setKitchenFull(false);
+                r.setKitchenFullSince(null);
+                r.setSealed(false);
+                r.setSealedAt(null);
+                r.setEstimatedResumeAt(null);
+                r.setOverdueNotified(false);
+                r.setLastHeartbeatAt(timeService.now());
+                roomRepository.save(r);
+            }
+        });
+
+        // 厨余桶满溢 95%，车未到
+        post("/api/device/events", event("KITCHEN_FULL", "ROOM4", Map.of("binType", "KITCHEN", "capacityPct", 95)));
+        assertThat(openAlerts("ROOM4", AlertType.KITCHEN_FULL_NO_TRUCK)).isEqualTo(1);
+        String caseNo = roomRepository.findByCode("ROOM4").orElseThrow().getActiveCaseNo();
+        assertThat(caseNo).startsWith("CASE-ROOM4-");
+
+        // 时间推进 10 分钟（满溢持续达封桶阈值），巡检触发封桶升级
+        timeService.setClock(Clock.fixed(Instant.parse("2026-10-05T04:10:00Z"), ZONE));
+        room4 = roomRepository.findByCode("ROOM4").orElseThrow();
+        room4.setLastHeartbeatAt(timeService.now());
+        roomRepository.save(room4);
+        escalationService.checkSealAndEscalate();
+
+        room4 = roomRepository.findByCode("ROOM4").orElseThrow();
+        assertThat(room4.isSealed()).isTrue();
+        assertThat(room4.getSealedAt()).isNotNull();
+        assertThat(room4.getEstimatedResumeAt()).isEqualTo(room4.getSealedAt().plusMinutes(40));
+        assertThat(openAlerts("ROOM4", AlertType.BIN_SEALED)).isEqualTo(1);
+        // 物业待办出现“临时封桶与备用点引导”
+        List<WorkTask> sealTasks = taskRepository.findByCaseNo(caseNo).stream()
+                .filter(t -> t.getType() == TaskType.BIN_SEAL && t.getStatus() != TaskStatus.DONE).toList();
+        assertThat(sealTasks).hasSize(1);
+
+        // 通知顺序：先物业封桶，再环卫调线，再居民引导
+        List<String> sealNotifies = notificationRepository.findByRoomCodeOrderByCreatedAtAsc("ROOM4").stream()
+                .map(com.city.garbage.domain.NotificationRecord::getNotifyType).toList();
+        assertThat(sealNotifies).startsWith("BIN_SEAL", "ROUTE_REROUTE", "SEAL_GUIDE");
+        // 环卫优先级升级为“已封桶调线”（110），仍排最高档
+        JsonNode priorities = get("/api/sanitation/truck-priorities");
+        JsonNode room4Prio = null;
+        for (int i = 0; i < priorities.size(); i++) {
+            if ("ROOM4".equals(priorities.get(i).get("roomCode").asText())) room4Prio = priorities.get(i);
+        }
+        assertThat(room4Prio).isNotNull();
+        assertThat(room4Prio.get("priorityScore").asInt()).isGreaterThanOrEqualTo(110);
+        assertThat(room4Prio.get("reason").asText()).contains("封桶", "调整路线");
+        assertThat(room4Prio.get("sealed").asBoolean()).isTrue();
+
+        // 居民端引导：封桶状态 + 预计恢复时间 + 最近可用投放点（同小区 ROOM2 最近）
+        JsonNode guide = get("/api/resident/rooms/ROOM4/disposal-guide");
+        assertThat(guide.get("sealed").asBoolean()).isTrue();
+        assertThat(guide.get("estimatedResumeAt").asText()).isNotBlank();
+        assertThat(guide.get("notice").asText()).contains("封桶", "备用点");
+        JsonNode alts = guide.get("alternatives");
+        assertThat(alts.size()).isGreaterThanOrEqualTo(2);
+        assertThat(alts.get(0).get("roomCode").asText()).isEqualTo("ROOM2");
+        assertThat(alts.get(0).get("sameCommunity").asBoolean()).isTrue();
+        assertThat(alts.get(0).get("distanceM").isNumber()).isTrue();
+
+        // 居民仍在封桶点投放厨余：不扣分、不记错投，摄像头记录进入现场管理问题
+        int pointsBefore = residentRepository.findByCardNo("CARD1001").orElseThrow().getTotalPoints();
+        JsonNode sealedDisposal = post("/api/resident/disposals", Map.of(
+                "cardNo", "CARD1001", "roomCode", "ROOM4", "binType", "KITCHEN",
+                "detectedType", "KITCHEN", "weightKg", 1.2, "confidence", 0.99));
+        assertThat(sealedDisposal.get("wrongSort").asBoolean()).isFalse();
+        assertThat(sealedDisposal.get("pointsChange").asInt()).isZero();
+        assertThat(sealedDisposal.get("violationMessage").asText()).contains("备用点", "不扣分");
+        assertThat(residentRepository.findByCardNo("CARD1001").orElseThrow().getTotalPoints())
+                .isEqualTo(pointsBefore);
+        List<SiteIssue> issues = siteIssueRepository.findByRoomCodeAndStatusOrderByCreatedAtAsc(
+                "ROOM4", SiteIssueStatus.OPEN);
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).getIssueType()).isEqualTo(SiteIssueType.DISPOSAL_AT_SEALED_BIN);
+        assertThat(issues.get(0).getDisposalId()).isEqualTo(sealedDisposal.get("id").asLong());
+        assertThat(issues.get(0).getCaseNo()).isEqualTo(caseNo);
+        // 物业现场问题列表可见，并派生“现场管理问题处置”任务
+        JsonNode propertyIssues = get("/api/property/site-issues?openOnly=true");
+        boolean listed = false;
+        for (int i = 0; i < propertyIssues.size(); i++) {
+            if ("ROOM4".equals(propertyIssues.get(i).get("roomCode").asText())) listed = true;
+        }
+        assertThat(listed).isTrue();
+        assertThat(taskRepository.findByCaseNo(caseNo)).extracting(WorkTask::getType)
+                .contains(TaskType.SITE_DISCIPLINE);
+
+        // 两位居民投诉清运延迟 -> 联动单累计居民投诉数量 2
+        post("/api/resident/complaints", Map.of(
+                "contact", "13800000001", "roomCode", "ROOM4", "type", "COLLECTION_DELAY",
+                "content", "厨余桶满了半小时还没车来，味道很大"));
+        JsonNode complaint2 = post("/api/resident/complaints", Map.of(
+                "contact", "13800000002", "roomCode", "ROOM4", "type", "COLLECTION_DELAY",
+                "content", "封桶了没地方扔，请尽快清运"));
+        assertThat(caseRepository.findByCaseNo(caseNo).orElseThrow().getResidentComplaintCount()).isEqualTo(2);
+
+        // 再推进 20 分钟车仍未到 -> 街道端超时督办
+        timeService.setClock(Clock.fixed(Instant.parse("2026-10-05T04:30:00Z"), ZONE));
+        room4 = roomRepository.findByCode("ROOM4").orElseThrow();
+        room4.setLastHeartbeatAt(timeService.now());
+        roomRepository.save(room4);
+        escalationService.checkSealAndEscalate();
+        assertThat(openAlerts("ROOM4", AlertType.COLLECTION_OVERDUE)).isEqualTo(1);
+        assertThat(caseRepository.findByCaseNo(caseNo).orElseThrow().getEscalatedAt()).isNotNull();
+        List<String> allNotifies = notificationRepository.findByRoomCodeOrderByCreatedAtAsc("ROOM4").stream()
+                .map(com.city.garbage.domain.NotificationRecord::getNotifyType).toList();
+        assertThat(allNotifies).contains("OVERDUE_ESCALATION");
+        // 环卫优先级提到街道督办档 120
+        priorities = get("/api/sanitation/truck-priorities");
+        for (int i = 0; i < priorities.size(); i++) {
+            if ("ROOM4".equals(priorities.get(i).get("roomCode").asText())) {
+                assertThat(priorities.get(i).get("priorityScore").asInt()).isGreaterThanOrEqualTo(120);
+                assertThat(priorities.get(i).get("reason").asText()).contains("街道督办");
+                assertThat(priorities.get(i).get("overdueNotified").asBoolean()).isTrue();
+            }
+        }
+
+        // 街道端超时事件：含投诉数量；回填清运延迟原因
+        JsonNode overdue = get("/api/street/collection-overdue");
+        JsonNode room4Event = null;
+        for (int i = 0; i < overdue.size(); i++) {
+            if ("ROOM4".equals(overdue.get(i).get("roomCode").asText())) room4Event = overdue.get(i);
+        }
+        assertThat(room4Event).isNotNull();
+        assertThat(room4Event.get("residentComplaintCount").asInt()).isEqualTo(2);
+        assertThat(room4Event.get("openSiteIssueCount").asInt()).isEqualTo(1);
+        post("/api/street/cases/" + caseNo + "/delay-reason", Map.of("reason", "早高峰交通管制，清运车堵在路上，已改派备用车辆"));
+        assertThat(caseRepository.findByCaseNo(caseNo).orElseThrow().getDelayReason()).contains("交通管制");
+
+        // 物业先把两起清运延迟投诉整改反馈（解除投诉告警）
+        for (JsonNode c : get("/api/property/complaints")) {
+            if ("ROOM4".equals(c.get("roomCode").asText())
+                    && "COLLECTION_DELAY".equals(c.get("type").asText())
+                    && !"RESOLVED".equals(c.get("status").asText())) {
+                post("/api/property/complaints/" + c.get("id").asLong() + "/reply",
+                        Map.of("reply", "车辆已改派，尽快到场清运"));
+            }
+        }
+        assertThat(openAlerts("ROOM4", AlertType.COLLECTION_DELAY_COMPLAINT)).isZero();
+
+        // 清运车到场：解除封桶与街道督办
+        post("/api/device/events", event("TRUCK_ARRIVAL", "ROOM4", Map.of("truckPresent", true)));
+        room4 = roomRepository.findByCode("ROOM4").orElseThrow();
+        assertThat(room4.isSealed()).isFalse();
+        assertThat(room4.getEstimatedResumeAt()).isNull();
+        assertThat(room4.isOverdueNotified()).isFalse();
+        assertThat(openAlerts("ROOM4", AlertType.BIN_SEALED)).isZero();
+        assertThat(openAlerts("ROOM4", AlertType.COLLECTION_OVERDUE)).isZero();
+
+        // 清运离场、桶清空：封桶期间滞留投放的现场管理问题自动收口，督导任务完成，联动单闭环
+        post("/api/device/events", event("TRUCK_ARRIVAL", "ROOM4", Map.of("truckPresent", false)));
+        assertThat(siteIssueRepository.findById(issues.get(0).getId()).orElseThrow().getStatus())
+                .isEqualTo(SiteIssueStatus.HANDLED);
+        assertThat(taskRepository.findByCaseNo(caseNo).stream()
+                .filter(t -> t.getType() == TaskType.SITE_DISCIPLINE).findFirst().orElseThrow().getStatus())
+                .isEqualTo(TaskStatus.DONE);
+        assertThat(roomRepository.findByCode("ROOM4").orElseThrow().getActiveCaseNo()).isNull();
+        assertThat(caseRepository.findByCaseNo(caseNo).orElseThrow().getStatus()).isEqualTo(CaseStatus.RESOLVED);
     }
 }

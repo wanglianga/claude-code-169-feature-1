@@ -10,6 +10,7 @@ import com.city.garbage.repo.ComplaintRepository;
 import com.city.garbage.repo.GovernanceCaseRepository;
 import com.city.garbage.service.ComplaintService;
 import com.city.garbage.service.DisposalService;
+import com.city.garbage.service.SiteIssueService;
 import com.city.garbage.service.WorkTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,6 +30,7 @@ public class PropertyController {
     private final WorkTaskService taskService;
     private final ComplaintService complaintService;
     private final DisposalService disposalService;
+    private final SiteIssueService siteIssueService;
     private final AlertRepository alertRepository;
     private final GovernanceCaseRepository caseRepository;
     private final ComplaintRepository complaintRepository;
@@ -103,5 +105,17 @@ public class PropertyController {
     public java.util.Map<String, Object> reconcilePoints() {
         int fixed = disposalService.settlePendingPoints();
         return java.util.Map.of("settledCount", fixed);
+    }
+
+    @Operation(summary = "现场管理问题列表（默认仅未处置；封桶期间居民仍在满溢点投放的摄像头记录）")
+    @GetMapping("/site-issues")
+    public List<SiteIssue> siteIssues(@RequestParam(defaultValue = "true") boolean openOnly) {
+        return siteIssueService.list(openOnly);
+    }
+
+    @Operation(summary = "处置现场管理问题（现场督导、清理滞留垃圾；全部处置后督导任务自动完成）")
+    @PostMapping("/site-issues/{id}/handle")
+    public SiteIssue handleSiteIssue(@PathVariable Long id, @Valid @RequestBody CompleteTaskRequest req) {
+        return siteIssueService.handle(id, req.note());
     }
 }

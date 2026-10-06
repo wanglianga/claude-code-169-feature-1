@@ -7,7 +7,9 @@ public enum TaskType {
     TRUCK_DISPATCH("清运调度"),
     REPAIR("设备维修"),
     RECHECK_SORTING("错投现场复核"),
-    RECTIFY("整改复核");
+    RECTIFY("整改复核"),
+    BIN_SEAL("临时封桶与备用点引导"),
+    SITE_DISCIPLINE("现场管理问题处置");
 
     private final String label;
     TaskType(String label) { this.label = label; }

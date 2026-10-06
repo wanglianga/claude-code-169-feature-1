@@ -103,6 +103,13 @@ public class LinkageEngine {
         switch (alert.getType()) {
             case KITCHEN_FULL_NO_TRUCK -> createTask(gc, TaskType.TRUCK_DISPATCH, "SANITATION", 100,
                     "厨余桶满溢(" + room.getKitchenCapacityPct() + "%)且清运车未到，优先调度清运", alert.getId());
+            case BIN_SEALED -> createTask(gc, TaskType.BIN_SEAL, "PROPERTY", 95,
+                    "厨余桶满溢持续未清运，立即临时封桶、张贴引导，督导居民改投备用点，预计"
+                            + props.getEstimatedResumeMinutes() + "分钟内恢复", alert.getId());
+            case COLLECTION_OVERDUE ->
+                // 复用同单清运任务并提到最高优先级（街道督办），不重复派单
+                createTask(gc, TaskType.TRUCK_DISPATCH, "SANITATION", 120,
+                        "封桶后清运车仍超时未到，街道已督办，立即调车清运", alert.getId());
             case OTHER_BIN_FULL -> createTask(gc, TaskType.TRUCK_DISPATCH, "SANITATION", 80,
                     "其他垃圾桶容量" + room.getOtherCapacityPct() + "%，安排清运", alert.getId());
             case ODOR, ODOR_COMPLAINT -> {
@@ -123,14 +130,14 @@ public class LinkageEngine {
         }
     }
 
-    private void createTask(GovernanceCase gc, TaskType type, String role, int priority, String detail, Long alertId) {
+    private WorkTask createTask(GovernanceCase gc, TaskType type, String role, int priority, String detail, Long alertId) {
         String key = gc.getCaseNo() + ":" + type;
         var found = taskRepository.findByDedupeKeyAndStatusNot(key, TaskStatus.DONE);
         if (found.isPresent()) {
             WorkTask t = found.get();
             if (t.getPriority() < priority) t.setPriority(priority);
             taskRepository.save(t);
-            return;
+            return t;
         }
         WorkTask t = new WorkTask();
         t.setCaseNo(gc.getCaseNo());
@@ -143,6 +150,29 @@ public class LinkageEngine {
         t.setDedupeKey(key);
         t.setCreatedAt(timeService.now());
         taskRepository.save(t);
+        return t;
+    }
+
+    /**
+     * 封桶期间居民仍到满溢点投放：派生/刷新“现场管理问题处置”任务（同单去重，优先级 90）。
+     * 返回该单上的现场督导任务，供现场问题回链。
+     */
+    @Transactional
+    public WorkTask createSiteTask(GarbageRoom room, int openIssueCount) {
+        GovernanceCase gc = activeCase(room);
+        if (gc == null) {
+            throw new IllegalStateException("封桶垃圾房必须存在活跃联动单: " + room.getCode());
+        }
+        WorkTask t = createTask(gc, TaskType.SITE_DISCIPLINE, "PROPERTY", 90,
+                "封桶期间累计" + openIssueCount + "起居民仍在满溢点投放，需现场督导、清理滞留垃圾并引导备用点", null);
+        t.setDetail("封桶期间累计" + openIssueCount + "起居民仍在满溢点投放，需现场督导、清理滞留垃圾并引导备用点");
+        return taskRepository.save(t);
+    }
+
+    @Transactional
+    public void markDoneById(Long taskId, String note) {
+        if (taskId == null) return;
+        taskRepository.findById(taskId).ifPresent(t -> markDone(t, note));
     }
 
     /** 解除垃圾房某类型的全部未闭环告警（不影响投诉类告警） */

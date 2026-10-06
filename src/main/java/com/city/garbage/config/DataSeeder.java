@@ -33,6 +33,10 @@ public class DataSeeder {
             GarbageRoom r1 = newRoom("ROOM1", "阳光花园1号垃圾房", c1.getId(), "阳光花园南门", timeService.now());
             GarbageRoom r2 = newRoom("ROOM2", "阳光花园2号垃圾房", c1.getId(), "12栋北侧", timeService.now());
             GarbageRoom r3 = newRoom("ROOM3", "翠柳小区1号垃圾房", c2.getId(), "翠柳小区东门", timeService.now());
+            // 演示坐标（杭州一带近似经纬度），供封桶后最近备用点按距离排序
+            r1.setLng(120.1812); r1.setLat(30.2741);
+            r2.setLng(120.1856); r2.setLat(30.2768);
+            r3.setLng(120.1963); r3.setLat(30.2810);
             roomRepository.save(r1);
             roomRepository.save(r2);
             roomRepository.save(r3);

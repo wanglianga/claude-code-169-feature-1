@@ -31,6 +31,10 @@ public class GarbageRoom {
     @Column(length = 128)
     private String address;
 
+    /** 垃圾房经纬度（备用点距离排序用，演示种子数据内置） */
+    private Double lng;
+    private Double lat;
+
     /* ---- 设备/桶态实时字段 ---- */
     private Integer kitchenCapacityPct = 0;
     private Integer otherCapacityPct = 0;
@@ -45,6 +49,15 @@ public class GarbageRoom {
     private OffsetDateTime lastDisinfectionAt;
     private OffsetDateTime lastCollectionAt;
     private OffsetDateTime lastCleanedAt;
+
+    /* ---- 满溢清运超时升级：物业临时封桶引导 ---- */
+    /** 厨余桶满溢后是否已临时封桶 */
+    private boolean sealed = false;
+    private OffsetDateTime sealedAt;
+    /** 对居民公示的预计恢复投放时间 */
+    private OffsetDateTime estimatedResumeAt;
+    /** 是否已向街道发出清运超时提醒（本满溢周期内只发一次） */
+    private boolean overdueNotified = false;
 
     /** 夜间投放计数（配合 nightCountDate 按日清零） */
     private Integer nightDisposalCount = 0;
